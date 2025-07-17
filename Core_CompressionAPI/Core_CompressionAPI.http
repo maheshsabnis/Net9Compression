@@ -1,0 +1,6 @@
+@Core_CompressionAPI_HostAddress = http://localhost:5136
+
+GET {{Core_CompressionAPI_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

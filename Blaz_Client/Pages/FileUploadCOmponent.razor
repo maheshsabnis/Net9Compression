@@ -1,0 +1,167 @@
+﻿@page "/fileuploadcomponent"
+@using System.Text.Json
+@using System.Text
+@using Blaz_Client.CompressionService
+@using System.IO.Compression
+@using System.Net.Http.Headers
+<h3>File Upload Component</h3>
+
+<div class="container">
+	<div class="form-group">
+		<label for="encodingType">Select Encoding Type:</label>
+		<InputSelect @bind-Value="selectedEncoding" class="form-control">
+			@foreach (var encoding in encodingType)
+			{
+				<option value="@encoding">@encoding</option>
+			}
+		</InputSelect>
+		</div>
+	<table class="table table-bordered table-striped">
+		 <tbody>
+			<tr>
+				 <td>File Data Upload</td>
+				 <td>
+					<InputFile OnChange="UploadSelectedFileData"></InputFile>
+				 </td>
+			</tr>
+			<tr>
+				<td colspan="2"></td>
+			</tr>
+			<tr>
+				<td colspan="2"></td>
+			</tr>
+			<tr>
+				<td colspan="2"></td>
+			</tr>
+			<tr>
+				<td>Large File Upload</td>
+				<td>
+					<InputFile OnChange="UploadLargeFile"></InputFile>
+				</td>
+			</tr>
+		</tbody>
+
+		<tfoot>
+			<tr>
+				<td>
+					@statusMessage
+				</td>
+			</tr>
+		</tfoot>
+	</table>
+</div>
+
+
+@code {
+	List<string> encodingType = new List<string>
+	{
+		 "gzip",
+		 "deflate"
+	};
+	private string selectedEncoding = "gzip";
+	string statusMessage = string.Empty;
+	private async Task UploadSelectedFileData(InputFileChangeEventArgs e)
+	{
+		try
+		{
+			var file = e.File;
+			var fileName = file.Name;
+			// Read te File Content into JSON
+			using var stream = file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024); // 10 MB limit
+			using var reader = new StreamReader(stream);
+			var jsonContent = await reader.ReadToEndAsync();
+			var payload = new { FileName = fileName, Content = jsonContent };
+			// Send the JSON content to the server
+			var fileUploadResult = await PostCompressedJsonAsync("https://localhost:7287/api/upload/data", payload);
+			if (fileUploadResult)
+			{
+				statusMessage = "File uploaded successfully!";
+			}
+			else
+			{
+				statusMessage = "File upload failed.";
+			}
+		}
+		catch (Exception ex)
+		{
+			statusMessage = $"Error: {ex.Message}";
+		}
+	}
+
+	/// <summary>
+	/// 
+	/// </summary>
+	/// <param name="url"></param>
+	/// <param name="data"></param>
+	/// <returns></returns>
+	async Task<bool> PostCompressedJsonAsync(string url, object data)
+	{
+		bool isFileUploaded = false;
+		var json = JsonSerializer.Serialize(data);
+		var content = new StringContent(json, Encoding.UTF8, "application/json");
+		var compressed = new CompressionAgent(content, selectedEncoding);
+
+		using var client = new HttpClient();
+		var response = await client.PostAsync(url, compressed);
+		var responseCode = response.EnsureSuccessStatusCode();
+
+
+		return isFileUploaded = responseCode.IsSuccessStatusCode;
+	}
+	private async Task UploadLargeFile(InputFileChangeEventArgs e)
+	{
+		try
+		{
+			var file = e.File;
+			var fileName = file.Name;
+			// Read te File Content into JSON
+			using var stream = file.OpenReadStream(maxAllowedSize: 200 * 1024 * 1024); // 200 MB limit
+
+			// Send the JSON content to the server
+			var fileUploadResult = await CompressAndSendLargeFileAsync("https://localhost:7287/api/upload/file", stream, fileName);
+			if (fileUploadResult)
+			{
+				statusMessage = "File uploaded successfully!";
+			}
+			else
+			{
+				statusMessage = "File upload failed.";
+			}
+
+		}
+		catch (Exception ex)
+		{
+			
+			throw;
+		}
+	}
+	/// <summary>
+	/// USe This method to send a compressed file to the server.
+	/// </summary>
+	/// <param name="url"></param>
+	/// <param name="filePath"></param>
+	/// <returns></returns>
+	public async Task<bool> CompressAndSendLargeFileAsync(string url, Stream stream, string fileName)
+	{
+		bool isFileUploaded = false;
+		using var compressedStream = new MemoryStream();
+		using var gzip = new GZipStream(compressedStream, CompressionMode.Compress, leaveOpen: true);
+		await stream.CopyToAsync(gzip);
+		await gzip.FlushAsync();
+		compressedStream.Position = 0;
+
+		var streamContent = new StreamContent(compressedStream);
+		streamContent.Headers.ContentEncoding.Add(selectedEncoding);
+		streamContent.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+		
+	 
+
+		using var client = new HttpClient();
+		var response = await client.PostAsync(url, streamContent);
+		var responseCode = response.EnsureSuccessStatusCode();
+
+
+		return isFileUploaded = responseCode.IsSuccessStatusCode;
+	}
+
+}
